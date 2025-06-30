@@ -23,25 +23,6 @@ This guide explains how to install DataLink Client through various methods.
    - Option 0: Use default server (https://datalink.ga111o.com)
    - Option 1: Enter custom server URL
 
-### Arch Linux (AUR)
-
-1. **Install from AUR:**
-   ```sh
-   # Using yay AUR helper
-   yay -S dtlk
-   
-   # Or using paru
-   paru -S dtlk
-   
-   # Manual installation
-   git clone https://aur.archlinux.org/dtlk.git
-   cd dtlk
-   makepkg -si
-   ```
-
-2. **Configure during installation:**
-   - Same interactive configuration as Debian package
-
 ## Option 2: Manual Installation
 
 ### From Source
