@@ -4,7 +4,7 @@ PROGRAM_NAME = dtlk
 INSTALL_DIR = /usr/local/bin
 MAN_DIR = /usr/local/share/man/man1
 
-.PHONY: all install uninstall clean test help
+.PHONY: all install uninstall clean test help package-deb package-arch package-all package-clean
 
 all: help
 
@@ -12,13 +12,17 @@ help:
 	@echo "DataLink Client - Installation Management"
 	@echo ""
 	@echo "Available targets:"
-	@echo "  install     - Install dtlk to $(INSTALL_DIR)"
-	@echo "  uninstall   - Remove dtlk from $(INSTALL_DIR)"
-	@echo "  test        - Run basic functionality tests"
-	@echo "  clean       - Clean up temporary files"
-	@echo "  help        - Show this help message"
+	@echo "  install      - Install dtlk to $(INSTALL_DIR)"
+	@echo "  uninstall    - Remove dtlk from $(INSTALL_DIR)"
+	@echo "  test         - Run basic functionality tests"
+	@echo "  clean        - Clean up temporary and package files"
+	@echo "  package-deb  - Build Debian (.deb) package"
+	@echo "  package-arch - Build Arch Linux package"
+	@echo "  package-all  - Build all packages"
+	@echo "  package-clean- Clean package build artifacts"
+	@echo "  help         - Show this help message"
 	@echo ""
-	@echo "Installation requires sudo privileges."
+	@echo "Installation and packaging require sudo privileges."
 
 install: $(PROGRAM_NAME)
 	@echo "DataLink Client Installation"
@@ -74,7 +78,7 @@ test: $(PROGRAM_NAME)
 	@echo ""
 	@echo "Basic tests completed successfully!"
 
-clean:
+clean: package-clean
 	@echo "Cleaning up temporary files..."
 	@rm -f /tmp/dtlk_*
 	@echo "Cleanup completed."
@@ -93,4 +97,42 @@ dev-test: $(PROGRAM_NAME)
 dev-clean:
 	@echo "Cleaning up development test files..."
 	@rm -rf test_files
-	@echo "Development cleanup completed." 
+	@echo "Development cleanup completed."
+
+# Package building targets
+package-deb: $(PROGRAM_NAME)
+	@echo "Building Debian package..."
+	@if ! command -v dpkg-deb >/dev/null 2>&1; then \
+		echo "Error: dpkg-deb not found. Please install dpkg-dev package."; \
+		exit 1; \
+	fi
+	@mkdir -p packaging/debian/usr/local/bin
+	@cp $(PROGRAM_NAME) packaging/debian/usr/local/bin/
+	@chmod 755 packaging/debian/usr/local/bin/$(PROGRAM_NAME)
+	@VERSION=$$(cat VERSION); \
+	sed -i "s/Version: .*/Version: $$VERSION/" packaging/debian/DEBIAN/control; \
+	dpkg-deb --build packaging/debian "$(PROGRAM_NAME)_$${VERSION}_all.deb"
+	@echo "Debian package created: $(PROGRAM_NAME)_$$(cat VERSION)_all.deb"
+
+package-arch: $(PROGRAM_NAME)
+	@echo "Building Arch Linux package..."
+	@if ! command -v makepkg >/dev/null 2>&1; then \
+		echo "Error: makepkg not found. Please install base-devel package."; \
+		exit 1; \
+	fi
+	@cd packaging/arch && \
+	VERSION=$$(cat ../../VERSION); \
+	sed -i "s/pkgver=.*/pkgver=$$VERSION/" PKGBUILD && \
+	makepkg -f
+	@echo "Arch package created in packaging/arch/"
+
+package-all: package-deb package-arch
+	@echo "All packages built successfully!"
+
+# Clean package build artifacts
+package-clean:
+	@echo "Cleaning package build artifacts..."
+	@rm -f *.deb
+	@rm -rf packaging/debian/usr
+	@cd packaging/arch && rm -f *.pkg.tar.* && rm -rf pkg/ src/
+	@echo "Package cleanup completed." 

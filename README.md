@@ -19,6 +19,25 @@ The tool will automatically check for dependencies and inform you if anything is
 
 ## Installation
 
+> **💡 For detailed installation instructions, see [INSTALL.md](INSTALL.md)**
+
+### Quick Install (Recommended)
+
+#### Debian/Ubuntu
+```sh
+# Download and install .deb package
+wget https://github.com/ga111o/datalink_client/releases/latest/download/dtlk_1.0.0_all.deb
+sudo dpkg -i dtlk_1.0.0_all.deb
+```
+
+#### Arch Linux
+```sh
+# Install from AUR
+yay -S dtlk
+# or
+paru -S dtlk
+```
+
 ### From Source
 
 1. Clone or download this repository
@@ -48,12 +67,18 @@ Please choose an option [0]: 1
 Enter your server URL (e.g., https://your-server.com): https://my-datalink.example.com
 ```
 
-### Manual Installation
+### Package Building
 
-Copy the `dtlk` script to a directory in your PATH:
+Build your own packages:
 ```sh
-sudo cp dtlk /usr/local/bin/
-sudo chmod 755 /usr/local/bin/dtlk
+# Build Debian package
+make package-deb
+
+# Build Arch package  
+make package-arch
+
+# Build all packages
+make package-all
 ```
 
 ## Usage

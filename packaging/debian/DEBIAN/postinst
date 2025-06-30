@@ -1,0 +1,58 @@
+#!/bin/bash
+
+# DataLink Client post-installation script
+
+set -e
+
+PROGRAM_NAME="dtlk"
+INSTALL_PATH="/usr/local/bin/$PROGRAM_NAME"
+
+# Only run interactive configuration if installing for the first time
+# and if we're in an interactive terminal
+if [ "$1" = "configure" ] && [ -t 0 ] && [ -t 1 ]; then
+    echo "DataLink Client Configuration"
+    echo "============================="
+    echo ""
+    echo "Server Configuration:"
+    echo "  0) Use default server (https://datalink.ga111o.com)"
+    echo "  1) Configure custom server URL"
+    echo ""
+    
+    # Use read with timeout to handle non-interactive installs
+    if read -t 30 -p "Please choose an option [0]: " choice; then
+        choice=${choice:-0}
+        
+        if [ "$choice" = "1" ]; then
+            if read -t 60 -p "Enter your server URL (e.g., https://your-server.com): " server_url; then
+                if [ -n "$server_url" ]; then
+                    echo "Configuring $PROGRAM_NAME with custom server: $server_url"
+                    sed -i "s|SERVER_URL=\"[^\"]*\"|SERVER_URL=\"$server_url\"|g" "$INSTALL_PATH"
+                else
+                    echo "Warning: Server URL was empty, using default configuration"
+                fi
+            else
+                echo "Timeout: Using default server configuration"
+            fi
+        elif [ "$choice" = "0" ]; then
+            echo "Using default server configuration"
+        else
+            echo "Invalid choice. Using default server configuration"
+        fi
+    else
+        echo "Timeout or non-interactive install: Using default server configuration"
+    fi
+    
+    echo ""
+    echo "Installation completed successfully!"
+    echo "You can now use '$PROGRAM_NAME' from anywhere in your system."
+    echo "Run '$PROGRAM_NAME --help' for usage information."
+    echo ""
+else
+    # Non-interactive install or upgrade
+    echo "DataLink Client installed. Run 'dtlk --help' for usage information."
+fi
+
+# Make sure the script is executable
+chmod 755 "$INSTALL_PATH"
+
+exit 0 

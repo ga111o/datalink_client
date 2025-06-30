@@ -1,0 +1,47 @@
+post_install() {
+    echo "DataLink Client Configuration"
+    echo "============================="
+    echo ""
+    echo "Server Configuration:"
+    echo "  0) Use default server (https://datalink.ga111o.com)"
+    echo "  1) Configure custom server URL"
+    echo ""
+    
+    # Use read with timeout to handle non-interactive installs
+    if read -t 30 -p "Please choose an option [0]: " choice; then
+        choice=${choice:-0}
+        
+        if [ "$choice" = "1" ]; then
+            if read -t 60 -p "Enter your server URL (e.g., https://your-server.com): " server_url; then
+                if [ -n "$server_url" ]; then
+                    echo "Configuring dtlk with custom server: $server_url"
+                    sed -i "s|SERVER_URL=\"[^\"]*\"|SERVER_URL=\"$server_url\"|g" /usr/local/bin/dtlk
+                else
+                    echo "Warning: Server URL was empty, using default configuration"
+                fi
+            else
+                echo "Timeout: Using default server configuration"
+            fi
+        elif [ "$choice" = "0" ]; then
+            echo "Using default server configuration"
+        else
+            echo "Invalid choice. Using default server configuration"
+        fi
+    else
+        echo "Timeout or non-interactive install: Using default server configuration"
+    fi
+    
+    echo ""
+    echo "Installation completed successfully!"
+    echo "You can now use 'dtlk' from anywhere in your system."
+    echo "Run 'dtlk --help' for usage information."
+}
+
+post_upgrade() {
+    echo "DataLink Client has been upgraded."
+    echo "Run 'dtlk --help' for usage information."
+}
+
+pre_remove() {
+    echo "Removing DataLink Client..."
+} 

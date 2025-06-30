@@ -1,0 +1,19 @@
+# Maintainer: minhyeok <ga111o@proton.me>
+pkgname=dtlk
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="DataLink Client - File upload/download tool"
+arch=('any')
+url="https://github.com/ga111o/datalink_client"
+license=('MIT')
+depends=('curl' 'tar' 'bash')
+install=dtlk.install
+source=("$pkgname-$pkgver.tar.gz::https://github.com/ga111o/datalink_client/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+    cd "$srcdir/datalink_client-$pkgver"
+    
+    # Install the main script
+    install -Dm755 dtlk "$pkgdir/usr/local/bin/dtlk"
+} 

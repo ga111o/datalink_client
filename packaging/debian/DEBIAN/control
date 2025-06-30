@@ -1,0 +1,20 @@
+Package: dtlk
+Version: 1.0.0
+Section: utils
+Priority: optional
+Architecture: all
+Depends: curl, tar
+Maintainer: minhyeok <ga111o@proton.me>
+Description: DataLink Client - File upload/download tool
+ A command-line tool for uploading and downloading files to/from a DataLink server.
+ .
+ Features:
+  - Upload files/directories compressed as tar.gz to server
+  - Download and automatically extract files from server  
+  - Simple CLI with colored output
+  - Automatic duplicate file handling with _dups suffix
+  - Comprehensive error checking and user-friendly messages
+ .
+ The tool compresses specified files/directories into tar.gz archives for upload
+ and automatically handles file conflicts during download by renaming duplicates.
+Homepage: https://github.com/ga111o/datalink_client

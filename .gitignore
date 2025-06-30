@@ -1,0 +1,61 @@
+# Build artifacts
+*.deb
+*.pkg.tar.*
+*.tar.gz
+*.tar.xz
+*.tar.zst
+
+# Package build directories
+packaging/debian/usr/
+packaging/arch/pkg/
+packaging/arch/src/
+
+# Temporary files
+/tmp/
+*.tmp
+*.temp
+*~
+
+# DataLink temporary files
+/tmp/dtlk_*
+test_files/
+
+# Development files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Log files
+*.log
+
+# Backup files
+*.bak
+*.backup
+
+# Archive files (except source archives)
+*.zip
+*.rar
+*.7z
+
+# Package manager files
+node_modules/
+*.lock
+
+# Local configuration
+config.local
+.env.local
+
+# Test outputs
+test_output/
+coverage/ 
