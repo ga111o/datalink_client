@@ -1,0 +1,294 @@
+#!/bin/bash
+
+# DataLink Client - File upload/download tool
+# Usage: 
+#   dtlk up <file/directory> [additional files/directories...]
+#   dtlk down <8-digit-id> [download-directory]
+
+set -e
+
+SERVER_URL="https://datalink.ga111o.com"
+SCRIPT_NAME="dtlk"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+print_error() {
+    echo -e "${RED}Error: $1${NC}" >&2
+}
+
+print_success() {
+    echo -e "${GREEN}$1${NC}"
+}
+
+print_info() {
+    echo -e "${YELLOW}$1${NC}"
+}
+
+check_dependencies() {
+    local missing_tools=()
+    
+    command -v curl >/dev/null 2>&1 || missing_tools+=("curl")
+    command -v tar >/dev/null 2>&1 || missing_tools+=("tar")
+    
+    if [ ${#missing_tools[@]} -ne 0 ]; then
+        print_error "Missing required tools: ${missing_tools[*]}"
+        echo "Please install the missing tools and try again."
+        exit 1
+    fi
+}
+
+upload_files() {
+    local files=("$@")
+    
+    if [ ${#files[@]} -eq 0 ]; then
+        print_error "No files or directories specified for upload"
+        echo "Usage: $SCRIPT_NAME up <file/directory> [additional files/directories...]"
+        exit 1
+    fi
+    
+    for file in "${files[@]}"; do
+        if [ ! -e "$file" ]; then
+            print_error "File or directory does not exist: $file"
+            exit 1
+        fi
+    done
+    
+    local timestamp=$(date +%s)
+    local temp_archive="/tmp/dtlk_upload_${timestamp}.tar.gz"
+    
+    print_info "Compressing files..."
+    if ! tar -czf "$temp_archive" "${files[@]}" 2>/dev/null; then
+        print_error "Failed to create archive"
+        exit 1
+    fi
+    
+    print_info "Uploading to server..."
+    local response
+    if ! response=$(curl -s -X POST "$SERVER_URL/upload" -F "file=@$temp_archive" 2>/dev/null); then
+        rm -f "$temp_archive"
+        print_error "Failed to connect to server at $SERVER_URL"
+        exit 1
+    fi
+    
+    rm -f "$temp_archive"
+    
+    local file_id
+    file_id=$(echo "$response" | grep -o '"id":"[0-9]*"' | grep -o '[0-9]*' | head -1)
+    
+    if [ -z "$file_id" ]; then
+        print_error "Upload failed. Server response: $response"
+        exit 1
+    fi
+    
+    local formatted_id=$(printf "%08d" "$file_id")
+    
+    print_success "Upload successful!"
+    echo
+    echo "File ID: $formatted_id"
+    echo
+    print_info "Use 'dtlk down $formatted_id' to download"
+}
+
+get_unique_name() {
+    local base_name="$1"
+    local counter=1
+    local new_name="$base_name"
+    
+    while [ -e "$new_name" ]; do
+        if [ -d "$base_name" ]; then
+            new_name="${base_name}_dups${counter}"
+        else
+            local name_without_ext="${base_name%.*}"
+            local extension="${base_name##*.}"
+            if [ "$name_without_ext" != "$base_name" ]; then
+                new_name="${name_without_ext}_dups${counter}.${extension}"
+            else
+                new_name="${base_name}_dups${counter}"
+            fi
+        fi
+        ((counter++))
+    done
+    
+    echo "$new_name"
+}
+
+handle_duplicates() {
+    local target_dir="$1"
+    local temp_extract_dir="$2"
+    local renamed_file="/tmp/dtlk_renamed_$(date +%s).txt"
+    
+    for item in "$temp_extract_dir"/*; do
+        [ ! -e "$item" ] && continue
+        
+        local item_name=$(basename "$item")
+        local target_path="$target_dir/$item_name"
+        
+        if [ -e "$target_path" ]; then
+            local unique_name=$(get_unique_name "$target_path")
+            local unique_basename=$(basename "$unique_name")
+            
+            print_info "File/directory '$item_name' already exists, renaming to '$unique_basename'"
+            
+            if ! mv "$item" "$unique_name"; then
+                print_error "Failed to move $item to $unique_name"
+                rm -f "$renamed_file"
+                return 1
+            fi
+            
+            echo "$unique_basename" >> "$renamed_file"
+        else
+            if ! mv "$item" "$target_path"; then
+                print_error "Failed to move $item to $target_path"
+                rm -f "$renamed_file"
+                return 1
+            fi
+        fi
+    done
+    
+    if [ -f "$renamed_file" ] && [ -s "$renamed_file" ]; then
+        echo
+        print_info "Some files were renamed to avoid conflicts:"
+        while IFS= read -r renamed_item; do
+            echo "  → $renamed_item"
+        done < "$renamed_file"
+    fi
+    
+    rm -f "$renamed_file"
+}
+
+download_file() {
+    local file_id="$1"
+    local download_dir="${2:-.}"
+    
+    if [ -z "$file_id" ]; then
+        print_error "No file ID specified"
+        echo "Usage: $SCRIPT_NAME down <8-digit-id> [download-directory]"
+        exit 1
+    fi
+    
+    file_id=$(echo "$file_id" | sed 's/^0*//')
+    if [ -z "$file_id" ]; then
+        file_id="0"
+    fi
+    
+    if ! [[ "$file_id" =~ ^[0-9]+$ ]]; then
+        print_error "Invalid file ID: must be numeric"
+        exit 1
+    fi
+    
+    if [ "$download_dir" != "." ] && [ ! -d "$download_dir" ]; then
+        print_info "Creating download directory: $download_dir"
+        mkdir -p "$download_dir"
+    fi
+    
+    local original_dir=$(pwd)
+    cd "$download_dir"
+    local abs_download_dir=$(pwd)
+    cd "$original_dir"
+    
+    print_info "Downloading file..."
+    local temp_file="/tmp/dtlk_download_$(date +%s).tar.gz"
+    
+    if ! curl -s -X GET "$SERVER_URL/download/$file_id" -o "$temp_file" -w "%{http_code}" > /tmp/dtlk_http_code 2>/dev/null; then
+        rm -f "$temp_file"
+        print_error "Failed to connect to server at $SERVER_URL"
+        exit 1
+    fi
+    
+    local http_code=$(cat /tmp/dtlk_http_code)
+    rm -f /tmp/dtlk_http_code
+    
+    if [ "$http_code" != "200" ]; then
+        rm -f "$temp_file"
+        if [ "$http_code" == "404" ]; then
+            print_error "File not found (ID: $file_id)"
+        else
+            print_error "Download failed (HTTP $http_code)"
+        fi
+        exit 1
+    fi
+    
+    if [ ! -f "$temp_file" ] || [ ! -s "$temp_file" ]; then
+        rm -f "$temp_file"
+        print_error "Download failed: no data received"
+        exit 1
+    fi
+    
+    local temp_extract_dir="/tmp/dtlk_extract_$(date +%s)"
+    mkdir -p "$temp_extract_dir"
+    
+    print_info "Extracting files..."
+    if ! tar -xzf "$temp_file" -C "$temp_extract_dir" 2>/dev/null; then
+        rm -f "$temp_file"
+        rm -rf "$temp_extract_dir"
+        print_error "Failed to extract downloaded file"
+        exit 1
+    fi
+    
+    rm -f "$temp_file"
+    
+    if ! handle_duplicates "$abs_download_dir" "$temp_extract_dir"; then
+        rm -rf "$temp_extract_dir"
+        print_error "Failed to handle file conflicts"
+        exit 1
+    fi
+    
+    rm -rf "$temp_extract_dir"
+    
+    print_success "Download and extraction completed!"
+    if [ "$download_dir" != "." ]; then
+        print_info "Files extracted to: $download_dir"
+    else
+        print_info "Files extracted to current directory"
+    fi
+}
+
+show_usage() {
+    echo "DataLink Client - File upload/download tool"
+    echo
+    echo "Usage:"
+    echo "  $SCRIPT_NAME up <file/directory> [additional files/directories...]"
+    echo "  $SCRIPT_NAME down <8-digit-id> [download-directory]"
+    echo
+    echo "Examples:"
+    echo "  $SCRIPT_NAME up myfile.txt"
+    echo "  $SCRIPT_NAME up folder1/ file.txt folder2/"
+    echo "  $SCRIPT_NAME down 12345678"
+    echo "  $SCRIPT_NAME down 12345678 ./downloads/"
+    echo
+    echo "Server URL: $SERVER_URL"
+}
+
+main() {
+    if [ $# -eq 0 ]; then
+        show_usage
+        exit 1
+    fi
+    
+    check_dependencies
+    
+    case "$1" in
+        "up")
+            shift
+            upload_files "$@"
+            ;;
+        "down")
+            shift
+            download_file "$@"
+            ;;
+        "-h"|"--help"|"help")
+            show_usage
+            ;;
+        *)
+            print_error "Unknown command: $1"
+            echo
+            show_usage
+            exit 1
+            ;;
+    esac
+}
+
+main "$@" 
