@@ -1,14 +1,11 @@
 # DataLink Client
 
-A command-line tool for uploading and downloading files to/from a DataLink server.
+Command line tool for file transfer
 
 ## Features
 
 - **Upload**: Compress files/directories to tar.gz and upload to server
 - **Download**: Download and automatically extract files from server
-- **Simple CLI**: Easy-to-use command-line interface
-- **Colored output**: Clear visual feedback with colored terminal output
-- **Error handling**: Comprehensive error checking and user-friendly messages
 
 ## Requirements
 
@@ -28,14 +25,6 @@ The tool will automatically check for dependencies and inform you if anything is
 # Download and install .deb package
 wget https://github.com/ga111o/datalink_client/releases/latest/download/dtlk_1.0.0_all.deb
 sudo dpkg -i dtlk_1.0.0_all.deb
-```
-
-#### Arch Linux
-```sh
-# Install from AUR
-yay -S dtlk
-# or
-paru -S dtlk
 ```
 
 ### From Source
@@ -215,28 +204,6 @@ The tool expects a server with the following endpoints:
 
 ## Examples
 
-### Complete Upload/Download Workflow
-
-```sh
-# Create some test content
-echo "Hello World" > test.txt
-mkdir testdir
-echo "Directory content" > testdir/file.txt
-
-# Upload files
-dtlk up test.txt testdir/
-# Output: File ID: 00000123
-
-# Download files
-dtlk down 00000123 ./restored/
-# Files will be extracted to ./restored/
-
-# Verify content
-ls ./restored/
-cat ./restored/test.txt
-cat ./restored/testdir/file.txt
-```
-
 ### Error Cases
 
 The tool handles various error conditions:
@@ -249,7 +216,7 @@ The tool handles various error conditions:
 
 ## License
 
-This tool is provided as-is for educational and development purposes.
+This project is licensed under the MIT License.
 
 ## Contributing
 
