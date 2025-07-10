@@ -120,10 +120,14 @@ handle_duplicates() {
     local temp_extract_dir="$2"
     local renamed_file="/tmp/dtlk_renamed_$(date +%s).txt"
     
+    shopt -s dotglob
+    
     for item in "$temp_extract_dir"/*; do
         [ ! -e "$item" ] && continue
         
         local item_name=$(basename "$item")
+        [ "$item_name" = "." ] || [ "$item_name" = ".." ] && continue
+        
         local target_path="$target_dir/$item_name"
         
         if [ -e "$target_path" ]; then
@@ -135,6 +139,7 @@ handle_duplicates() {
             if ! mv "$item" "$unique_name"; then
                 print_error "Failed to move $item to $unique_name"
                 rm -f "$renamed_file"
+                shopt -u dotglob
                 return 1
             fi
             
@@ -143,10 +148,13 @@ handle_duplicates() {
             if ! mv "$item" "$target_path"; then
                 print_error "Failed to move $item to $target_path"
                 rm -f "$renamed_file"
+                shopt -u dotglob
                 return 1
             fi
         fi
     done
+    
+    shopt -u dotglob
     
     if [ -f "$renamed_file" ] && [ -s "$renamed_file" ]; then
         echo
