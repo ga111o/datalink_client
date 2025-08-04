@@ -9,10 +9,10 @@ This guide explains how to install DataLink Client through various methods.
 1. **Install from pre-built package:**
    ```sh
    # Download the .deb package
-   wget https://github.com/ga111o/datalink_client/releases/latest/download/dtlk_1.0.0_all.deb
+   wget https://github.com/ga111o/datalink_client/releases/latest/download/dtlk_1.0.3_all.deb
    
    # Install the package
-   sudo dpkg -i dtlk_1.0.0_all.deb
+   sudo dpkg -i dtlk_1.0.3_all.deb
    
    # Install dependencies if needed
    sudo apt-get install -f
