@@ -7,6 +7,39 @@
 
 set -e
 
+# Global variables for cleanup
+progress_pid=""
+compress_pid=""
+temp_archive=""
+temp_file=""
+temp_extract_dir=""
+
+# Signal handler for cleanup
+cleanup() {
+    print_info "Cancelling operation..."
+    
+    # Kill background processes
+    [ -n "$progress_pid" ] && kill "$progress_pid" 2>/dev/null || true
+    [ -n "$compress_pid" ] && kill "$compress_pid" 2>/dev/null || true
+    
+    # Clean up temporary files
+    [ -n "$temp_archive" ] && [ -f "$temp_archive" ] && rm -f "$temp_archive"
+    [ -n "$temp_file" ] && [ -f "$temp_file" ] && rm -f "$temp_file"
+    [ -n "$temp_extract_dir" ] && [ -d "$temp_extract_dir" ] && rm -rf "$temp_extract_dir"
+    
+    # Clean up any other temporary files
+    rm -f /tmp/dtlk_compress_progress_* 2>/dev/null || true
+    rm -f /tmp/dtlk_http_code 2>/dev/null || true
+    rm -f /tmp/dtlk_renamed_*.txt 2>/dev/null || true
+    
+    echo
+    print_error "Operation cancelled"
+    exit 1
+}
+
+# Set up signal handlers
+trap cleanup INT TERM
+
 SERVER_URL="https://datalink.ga111o.com"
 SCRIPT_NAME="dtlk"
 
@@ -119,10 +152,38 @@ upload_files() {
     echo
     
     local timestamp=$(date +%s)
-    local temp_archive="/tmp/dtlk_upload_${timestamp}.tar.gz"
+    temp_archive="/tmp/dtlk_upload_${timestamp}.tar.gz"
     
     print_info "Compressing files..."
-    if ! tar -czf "$temp_archive" "${files[@]}" 2>/dev/null; then
+    
+    local progress_file="/tmp/dtlk_compress_progress_${timestamp}"
+    touch "$progress_file"
+    
+    (
+        tar -czf "$temp_archive" "${files[@]}" 2>/dev/null &
+        local tar_pid=$!
+        
+        while kill -0 "$tar_pid" 2>/dev/null; do
+            if [ -f "$temp_archive" ]; then
+                local current_size=$(stat -c%s "$temp_archive" 2>/dev/null || echo 0)
+                show_progress "$current_size" "$total_size" "Compress"
+            fi
+            sleep 0.5
+        done
+        
+        wait "$tar_pid"
+        echo "done" > "$progress_file"
+    ) &
+    compress_pid=$!
+    
+    while [ ! -f "$progress_file" ] || [ "$(cat "$progress_file" 2>/dev/null)" != "done" ]; do
+        sleep 0.1
+    done
+    
+    rm -f "$progress_file"
+    echo
+    
+    if ! wait "$compress_pid" 2>/dev/null; then
         print_error "Failed to create archive"
         exit 1
     fi
@@ -133,7 +194,7 @@ upload_files() {
     
     print_info "Uploading to server..."
     
-    local progress_pid=""
+    progress_pid=""
     if [ "$archive_size" -gt 0 ]; then
         (
             while [ -f "$temp_archive" ]; do
@@ -281,7 +342,7 @@ download_file() {
     cd "$original_dir"
     
     print_info "Downloading file..."
-    local temp_file="/tmp/dtlk_download_$(date +%s).tar.gz"
+    temp_file="/tmp/dtlk_download_$(date +%s).tar.gz"
     
     local file_size=0
     local head_response=$(curl -s -I "$SERVER_URL/download/$file_id" 2>/dev/null)
@@ -293,7 +354,7 @@ download_file() {
         fi
     fi
     
-    local progress_pid=""
+    progress_pid=""
     if [ "$file_size" -gt 0 ]; then
         (
             while [ -f "$temp_file" ]; do
@@ -338,7 +399,7 @@ download_file() {
     print_info "Downloaded: $(format_bytes "$downloaded_size")"
     echo
     
-    local temp_extract_dir="/tmp/dtlk_extract_$(date +%s)"
+    temp_extract_dir="/tmp/dtlk_extract_$(date +%s)"
     mkdir -p "$temp_extract_dir"
     
     print_info "Extracting files..."
