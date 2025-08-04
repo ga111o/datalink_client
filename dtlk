@@ -7,7 +7,6 @@
 
 set -e
 
-# Global variables for cleanup
 progress_pid=""
 compress_pid=""
 extract_pid=""
@@ -15,23 +14,23 @@ temp_archive=""
 temp_file=""
 temp_extract_dir=""
 
-# Signal handler for cleanup
 cleanup() {
     print_info "Cancelling operation..."
     
-    # Kill background processes
     [ -n "$progress_pid" ] && kill "$progress_pid" 2>/dev/null || true
     [ -n "$compress_pid" ] && kill "$compress_pid" 2>/dev/null || true
     [ -n "$extract_pid" ] && kill "$extract_pid" 2>/dev/null || true
     
-    # Clean up temporary files
     [ -n "$temp_archive" ] && [ -f "$temp_archive" ] && rm -f "$temp_archive"
     [ -n "$temp_file" ] && [ -f "$temp_file" ] && rm -f "$temp_file"
     [ -n "$temp_extract_dir" ] && [ -d "$temp_extract_dir" ] && rm -rf "$temp_extract_dir"
     
-    # Clean up any other temporary files
     rm -f /tmp/dtlk_compress_progress_* 2>/dev/null || true
-    rm -f /tmp/dtlk_http_code 2>/dev/null || true
+    rm -f /tmp/dtlk_upload_progress_* 2>/dev/null || true
+    rm -f /tmp/dtlk_download_progress_* 2>/dev/null || true
+    rm -f /tmp/dtlk_extract_progress_* 2>/dev/null || true
+    rm -f /tmp/dtlk_http_code* 2>/dev/null || true
+    rm -f /tmp/dtlk_response_* 2>/dev/null || true
     rm -f /tmp/dtlk_renamed_*.txt 2>/dev/null || true
     
     echo
@@ -39,7 +38,7 @@ cleanup() {
     exit 1
 }
 
-# Set up signal handlers
+
 trap cleanup INT TERM
 
 SERVER_URL="https://datalink.ga111o.com"
@@ -102,7 +101,7 @@ show_progress() {
     fi
     
     local percentage=$((current * 100 / total))
-    local bar_length=30
+    local bar_length=50
     local filled_length=$((percentage * bar_length / 100))
     local empty_length=$((bar_length - filled_length))
     
@@ -117,8 +116,22 @@ show_progress() {
     local current_formatted=$(format_bytes "$current")
     local total_formatted=$(format_bytes "$total")
     
-    printf "\r${operation}: [%s] %d%% (%s/%s)" "$bar" "$percentage" "$current_formatted" "$total_formatted"
+    printf "\r${BLUE}%s: [%s] %d%% (%s/%s)${NC}" "$operation" "$bar" "$percentage" "$current_formatted" "$total_formatted"
 }
+
+show_spinner() {
+    local operation="$1"
+    local spinner_chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    local i=0
+    
+    while true; do
+        local char=${spinner_chars:$((i % ${#spinner_chars})):1}
+        printf "\r${BLUE}%s %s${NC}" "$char" "$operation"
+        i=$((i + 1))
+        sleep 0.1
+    done
+}
+
 
 check_dependencies() {
     local missing_tools=()
@@ -158,74 +171,135 @@ upload_files() {
     
     print_info "Compressing files..."
     
-    local progress_file="/tmp/dtlk_compress_progress_${timestamp}"
-    touch "$progress_file"
+    local compress_progress_file="/tmp/dtlk_compress_progress_${timestamp}"
     
     (
-        tar -czf "$temp_archive" "${files[@]}" 2>/dev/null &
-        local tar_pid=$!
+        local estimated_final_size=$((total_size * 30 / 100))
+        [ "$estimated_final_size" -lt 1024 ] && estimated_final_size=1024
         
-        while kill -0 "$tar_pid" 2>/dev/null; do
-            if [ -f "$temp_archive" ]; then
-                local current_size=$(stat -c%s "$temp_archive" 2>/dev/null || echo 0)
-                show_progress "$current_size" "$total_size" "Compress"
-            fi
-            sleep 0.5
+        while [ ! -f "$temp_archive" ]; do
+            sleep 0.1
         done
         
-        wait "$tar_pid"
-        echo "done" > "$progress_file"
+        while kill -0 "$compress_pid" 2>/dev/null; do
+            if [ -f "$temp_archive" ]; then
+                local current_size=$(stat -c%s "$temp_archive" 2>/dev/null || echo 0)
+                
+                if [ "$current_size" -gt "$estimated_final_size" ]; then
+                    estimated_final_size=$((current_size + current_size / 10))
+                fi
+                
+                show_progress "$current_size" "$estimated_final_size" "Compress"
+            fi
+            sleep 0.2
+        done
+        
+        if [ -f "$temp_archive" ]; then
+            local final_size=$(stat -c%s "$temp_archive")
+            show_progress "$final_size" "$final_size" "Compress"
+        fi
+        
+        echo
     ) &
+    
+    local progress_monitor_pid=$!
+    
+    tar -czf "$temp_archive" "${files[@]}" 2>/dev/null &
     compress_pid=$!
     
-    while [ ! -f "$progress_file" ] || [ "$(cat "$progress_file" 2>/dev/null)" != "done" ]; do
-        sleep 0.1
-    done
-    
-    rm -f "$progress_file"
-    echo
-    
-    if ! wait "$compress_pid" 2>/dev/null; then
+    if ! wait "$compress_pid"; then
+        kill "$progress_monitor_pid" 2>/dev/null || true
         print_error "Failed to create archive"
         exit 1
     fi
     
+    kill "$progress_monitor_pid" 2>/dev/null || true
+    wait "$progress_monitor_pid" 2>/dev/null || true
+    
+    if [ ! -f "$temp_archive" ]; then
+        print_error "Archive file was not created"
+        exit 1
+    fi
+    
     local archive_size=$(stat -c%s "$temp_archive" 2>/dev/null || echo 0)
-    print_info "Archive size: $(format_bytes "$archive_size")"
+    if [ "$archive_size" -eq 0 ]; then
+        print_error "Archive file is empty"
+        rm -f "$temp_archive"
+        exit 1
+    fi
+    
+    print_info "Archive created: $(format_bytes "$archive_size")"
     echo
     
     print_info "Uploading to server..."
     
-    progress_pid=""
-    if [ "$archive_size" -gt 0 ]; then
-        (
-            while [ -f "$temp_archive" ]; do
-                local current_size=$(stat -c%s "$temp_archive" 2>/dev/null || echo 0)
-                show_progress "$current_size" "$archive_size" "Upload"
-                sleep 0.5
-            done
-        ) &
-        progress_pid=$!
-    fi
+    local upload_progress_file="/tmp/dtlk_upload_progress_${timestamp}"
+    local response_file="/tmp/dtlk_response_${timestamp}"
+    local http_code_file="/tmp/dtlk_http_code_${timestamp}"
     
-    local response
-    if ! response=$(curl -s -X POST "$SERVER_URL/upload" -F "file=@$temp_archive" 2>/dev/null); then
-        rm -f "$temp_archive"
-        [ -n "$progress_pid" ] && kill "$progress_pid" 2>/dev/null || true
+    (
+        while [ ! -f "$upload_progress_file" ]; do
+            sleep 0.1
+        done
+        
+        while [ -f "$upload_progress_file" ]; do
+            if [ -f "$response_file" ]; then
+                local uploaded=$(stat -c%s "$response_file" 2>/dev/null || echo 0)
+                if [ "$uploaded" -gt 0 ]; then
+                    show_progress "$archive_size" "$archive_size" "Upload"
+                    break
+                fi
+            fi
+            show_progress 0 "$archive_size" "Upload"
+            sleep 0.3
+        done
+    ) &
+    
+    progress_pid=$!
+    
+    echo "0" > "$upload_progress_file"
+    
+    if ! curl -X POST "$SERVER_URL/upload" \
+        -F "file=@$temp_archive" \
+        --output "$response_file" \
+        --write-out "%{http_code}" \
+        --silent \
+        --show-error > "$http_code_file" 2>/dev/null; then
+            
+        rm -f "$temp_archive" "$http_code_file" "$response_file" "$upload_progress_file"
+        kill "$progress_pid" 2>/dev/null || true
         print_error "Failed to connect to server at $SERVER_URL"
         exit 1
     fi
     
-    [ -n "$progress_pid" ] && kill "$progress_pid" 2>/dev/null || true
+    rm -f "$upload_progress_file"
+    kill "$progress_pid" 2>/dev/null || true
+    wait "$progress_pid" 2>/dev/null || true
     echo
     
-    rm -f "$temp_archive"
+    local response_content=""
+    local http_code=""
+    
+    if [ -f "$response_file" ]; then
+        response_content=$(cat "$response_file" 2>/dev/null || echo "")
+    fi
+    
+    if [ -f "$http_code_file" ]; then
+        http_code=$(cat "$http_code_file" 2>/dev/null || echo "")
+    fi
+    
+    rm -f "$temp_archive" "$response_file" "$http_code_file"
+    
+    if [ "$http_code" != "200" ]; then
+        print_error "Upload failed (HTTP $http_code). Server response: $response_content"
+        exit 1
+    fi
     
     local file_id
-    file_id=$(echo "$response" | grep -o '"id":"[0-9]*"' | grep -o '[0-9]*' | head -1)
+    file_id=$(echo "$response_content" | grep -o '"id":"[0-9]*"' | grep -o '[0-9]*' | head -1)
     
     if [ -z "$file_id" ]; then
-        print_error "Upload failed. Server response: $response"
+        print_error "Upload failed. Server response: $response_content"
         exit 1
     fi
     
@@ -349,37 +423,51 @@ download_file() {
     local file_size=0
     local head_response=$(curl -s -I "$SERVER_URL/download/$file_id" 2>/dev/null)
     if [ $? -eq 0 ]; then
-        file_size=$(echo "$head_response" | grep -i "content-length" | cut -d' ' -f2 | tr -d '\r')
+        file_size=$(echo "$head_response" | grep -i "content-length:" | sed 's/.*: *//' | tr -d '\r\n')
         if [ -n "$file_size" ] && [ "$file_size" -gt 0 ]; then
             print_info "File size: $(format_bytes "$file_size")"
             echo
         fi
     fi
     
-    progress_pid=""
+    local download_progress_file="/tmp/dtlk_download_progress_$(date +%s)"
+    
     if [ "$file_size" -gt 0 ]; then
         (
-            while [ -f "$temp_file" ]; do
-                local current_size=$(stat -c%s "$temp_file" 2>/dev/null || echo 0)
-                show_progress "$current_size" "$file_size" "Download"
-                sleep 0.5
+            while [ ! -f "$download_progress_file" ]; do
+                sleep 0.1
+            done
+            
+            while [ -f "$download_progress_file" ]; do
+                if [ -f "$temp_file" ]; then
+                    local current_size=$(stat -c%s "$temp_file" 2>/dev/null || echo 0)
+                    show_progress "$current_size" "$file_size" "Download"
+                fi
+                sleep 0.3
             done
         ) &
+        
         progress_pid=$!
+        echo "0" > "$download_progress_file"
     fi
     
-    if ! curl -# -X GET "$SERVER_URL/download/$file_id" -o "$temp_file" -w "%{http_code}" > /tmp/dtlk_http_code 2>/dev/null; then
-        rm -f "$temp_file"
+    local http_code
+    if ! http_code=$(curl -X GET "$SERVER_URL/download/$file_id" \
+        -o "$temp_file" \
+        --progress-meter \
+        --write-out "%{http_code}" \
+        2>/dev/null); then
+            
+        rm -f "$temp_file" "$download_progress_file"
         [ -n "$progress_pid" ] && kill "$progress_pid" 2>/dev/null || true
         print_error "Failed to connect to server at $SERVER_URL"
         exit 1
     fi
     
+    rm -f "$download_progress_file"
     [ -n "$progress_pid" ] && kill "$progress_pid" 2>/dev/null || true
+    [ -n "$progress_pid" ] && wait "$progress_pid" 2>/dev/null || true
     echo
-    
-    local http_code=$(cat /tmp/dtlk_http_code)
-    rm -f /tmp/dtlk_http_code
     
     if [ "$http_code" != "200" ]; then
         rm -f "$temp_file"
@@ -406,39 +494,54 @@ download_file() {
     
     print_info "Extracting files..."
     
-    local archive_size=$(stat -c%s "$temp_file" 2>/dev/null || echo 0)
+    local extract_progress_file="/tmp/dtlk_extract_progress_$(date +%s)"
     
     (
-        tar -xzf "$temp_file" -C "$temp_extract_dir" 2>/dev/null &
-        local tar_pid=$!
-        
-        local last_size=0
-        while kill -0 "$tar_pid" 2>/dev/null; do
-            local current_size=0
-            if [ -d "$temp_extract_dir" ]; then
-                current_size=$(du -sb "$temp_extract_dir" 2>/dev/null | cut -f1 || echo 0)
-            fi
-            
-            if [ "$current_size" -gt "$last_size" ]; then
-                show_progress "$current_size" "$archive_size" "Extract"
-                last_size="$current_size"
-            fi
-            sleep 0.5
+        while [ ! -f "$extract_progress_file" ]; do
+            sleep 0.1
         done
         
-        wait "$tar_pid"
+        local last_size=0
+        while [ -f "$extract_progress_file" ]; do
+            if [ -d "$temp_extract_dir" ]; then
+                local current_size=$(du -sb "$temp_extract_dir" 2>/dev/null | cut -f1 || echo 0)
+                
+                local estimated_final_size=$((downloaded_size * 3))
+                
+                if [ "$current_size" -gt "$estimated_final_size" ]; then
+                    estimated_final_size=$((current_size + current_size / 10))
+                fi
+                
+                if [ "$current_size" -ne "$last_size" ]; then
+                    show_progress "$current_size" "$estimated_final_size" "Extract"
+                    last_size=$current_size
+                fi
+            fi
+            sleep 0.2
+        done
     ) &
-    extract_pid=$!
     
-    wait "$extract_pid"
-    echo
+    local extract_progress_pid=$!
+    echo "0" > "$extract_progress_file"
     
-    if [ $? -ne 0 ]; then
-        rm -f "$temp_file"
+    if ! tar -xzf "$temp_file" -C "$temp_extract_dir" 2>/dev/null; then
+        rm -f "$temp_file" "$extract_progress_file"
         rm -rf "$temp_extract_dir"
+        kill "$extract_progress_pid" 2>/dev/null || true
         print_error "Failed to extract downloaded file"
         exit 1
     fi
+    
+    rm -f "$extract_progress_file"
+    kill "$extract_progress_pid" 2>/dev/null || true
+    wait "$extract_progress_pid" 2>/dev/null || true
+    
+    local extracted_size=$(du -sb "$temp_extract_dir" 2>/dev/null | cut -f1 || echo 0)
+    show_progress "$extracted_size" "$extracted_size" "Extract"
+    echo
+    
+    print_success "Extraction completed! ($(format_bytes "$extracted_size") extracted)"
+    echo
     
     rm -f "$temp_file"
     
@@ -457,6 +560,7 @@ download_file() {
         print_info "Files extracted to current directory"
     fi
 }
+
 
 show_usage() {
     echo "DataLink Client - File upload/download tool"
