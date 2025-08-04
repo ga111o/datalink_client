@@ -23,8 +23,8 @@ The tool will automatically check for dependencies and inform you if anything is
 #### Debian/Ubuntu
 ```sh
 # Download and install .deb package
-wget https://github.com/ga111o/datalink_client/releases/latest/download/dtlk_1.0.1_all.deb
-sudo dpkg -i dtlk_1.0.1_all.deb
+wget https://github.com/ga111o/datalink_client/releases/latest/download/dtlk_1.0.2_all.deb
+sudo dpkg -i dtlk_1.0.2_all.deb
 ```
 
 ### From Source
