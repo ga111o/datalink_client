@@ -10,6 +10,7 @@ set -e
 # Global variables for cleanup
 progress_pid=""
 compress_pid=""
+extract_pid=""
 temp_archive=""
 temp_file=""
 temp_extract_dir=""
@@ -21,6 +22,7 @@ cleanup() {
     # Kill background processes
     [ -n "$progress_pid" ] && kill "$progress_pid" 2>/dev/null || true
     [ -n "$compress_pid" ] && kill "$compress_pid" 2>/dev/null || true
+    [ -n "$extract_pid" ] && kill "$extract_pid" 2>/dev/null || true
     
     # Clean up temporary files
     [ -n "$temp_archive" ] && [ -f "$temp_archive" ] && rm -f "$temp_archive"
@@ -366,7 +368,7 @@ download_file() {
         progress_pid=$!
     fi
     
-    if ! curl -s -X GET "$SERVER_URL/download/$file_id" -o "$temp_file" -w "%{http_code}" > /tmp/dtlk_http_code 2>/dev/null; then
+    if ! curl -# -X GET "$SERVER_URL/download/$file_id" -o "$temp_file" -w "%{http_code}" > /tmp/dtlk_http_code 2>/dev/null; then
         rm -f "$temp_file"
         [ -n "$progress_pid" ] && kill "$progress_pid" 2>/dev/null || true
         print_error "Failed to connect to server at $SERVER_URL"
@@ -403,7 +405,35 @@ download_file() {
     mkdir -p "$temp_extract_dir"
     
     print_info "Extracting files..."
-    if ! tar -xzf "$temp_file" -C "$temp_extract_dir" 2>/dev/null; then
+    
+    local archive_size=$(stat -c%s "$temp_file" 2>/dev/null || echo 0)
+    
+    (
+        tar -xzf "$temp_file" -C "$temp_extract_dir" 2>/dev/null &
+        local tar_pid=$!
+        
+        local last_size=0
+        while kill -0 "$tar_pid" 2>/dev/null; do
+            local current_size=0
+            if [ -d "$temp_extract_dir" ]; then
+                current_size=$(du -sb "$temp_extract_dir" 2>/dev/null | cut -f1 || echo 0)
+            fi
+            
+            if [ "$current_size" -gt "$last_size" ]; then
+                show_progress "$current_size" "$archive_size" "Extract"
+                last_size="$current_size"
+            fi
+            sleep 0.5
+        done
+        
+        wait "$tar_pid"
+    ) &
+    extract_pid=$!
+    
+    wait "$extract_pid"
+    echo
+    
+    if [ $? -ne 0 ]; then
         rm -f "$temp_file"
         rm -rf "$temp_extract_dir"
         print_error "Failed to extract downloaded file"
